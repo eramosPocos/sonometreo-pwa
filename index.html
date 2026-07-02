@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sonómetro PWA Pro</title>
+    <link rel="manifest" href="./manifest.json">
+    <meta name="theme-color" content="#000000">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #121212;
+            color: #fff;
+            margin: 0;
+            padding: 10px;
+        }
+
+        /* Contenedor para el giro de pantalla */
+        #app-container {
+            width: 100%;
+            min-height: 100vh;
+            transition: transform 0.4s ease;
+        }
+
+        .screen-flipped {
+            transform: rotate(180deg);
+            width: 100vw;
+            min-height: 100vh;
+        }
+
+        /* Número Grande Global */
+        .global-display {
+            text-align: center;
+            margin: 10px 0;
+            background: #000;
+            border: 2px solid #333;
+            border-radius: 10px;
+            padding: 15px;
+        }
+
+        .global-value {
+            font-size: 5rem;
+            font-weight: bold;
+            margin: 0;
+            line-height: 1;
+            font-family: 'Courier New', Courier, monospace;
+        }
+
+        .global-label {
+            font-size: 1.5rem;
+            color: #aaa;
+            margin-top: 5px;
+            display: block;
+        }
+
+        .color-green {
+            color: #00ff00;
+            text-shadow: 0 0 20px #00ff00;
+        }
+
+        .color-yellow {
+            color: #ffff00;
+            text-shadow: 0 0 20px #ffff00;
+        }
+
+        .color-red {
+            color: #ff0000;
+            text-shadow: 0 0 20px #ff0000;
+        }
+
+        .visualizer-container {
+            width: 100%;
+            background: #000;
+            border: 1px solid #333;
+            border-radius: 5px;
+            overflow: hidden;
+            margin-bottom: 20px;
+        }
+
+        canvas {
+            width: 100%;
+            height: auto;
+            display: block;
+        }
+
+        .panel {
+            margin-top: 10px;
+            padding: 15px;
+            border: 1px solid #333;
+            border-radius: 8px;
+            background-color: #1e1e1e;
+        }
+
+        .panel h2,
+        .panel h3 {
+            margin-top: 0;
+            color: #4CAF50;
+            font-size: 1.1em;
+            border-bottom: 1px solid #333;
+            padding-bottom: 5px;
+        }
+
+        button {
+            background-color: #0d47a1;
+            color: white;
+            border: none;
+            padding: 12px 10px;
+            margin: 5px 5px 5px 0;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 0.95em;
+            width: 100%;
+        }
+
+        button:disabled {
+            background-color: #333;
+            color: #666;
+            cursor: not-allowed;
+        }
+
+        button.danger {
+            background-color: #b71c1c;
+        }
+
+        button.success {
+            background-color: #2e7d32;
+        }
+
+        button.warning {
+            background-color: #f57f17;
+        }
+
+        .controls-group {
+            display: flex;
+            gap: 5px;
+            margin-top: 10px;
+        }
+
+        .controls-group button {
+            width: auto;
+            flex: 1;
+        }
+
+        input[type="number"] {
+            padding: 10px;
+            font-size: 16px;
+            width: 100%;
+            border-radius: 4px;
+            border: 1px #555 solid;
+            background: #333;
+            color: white;
+            margin-top: 5px;
+        }
+
+        .step-box {
+            margin-top: 10px;
+            padding: 10px;
+            border: 1px dashed #444;
+            border-radius: 5px;
+        }
+
+        .step-box label {
+            display: block;
+            font-size: 0.85em;
+            color: #aaa;
+            margin-bottom: 5px;
+        }
+
+        .freq-selector {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        #current-frequency {
+            color: #4CAF50;
+            font-size: 1.3em;
+            font-weight: bold;
+        }
+
+        #calibration-status {
+            font-size: 0.85em;
+            color: #ffeb3b;
+            margin: 10px 0;
+            min-height: 40px;
+            background: #000;
+            padding: 10px;
+            border-radius: 5px;
+            text-align: center;
+        }
+
+        .file-input-hidden {
+            display: none;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="app-container">
+        <!-- Banner de Aviso de Sin Calibrar -->
+        <div id="cal-warning"
+            style="display:none; background:#ff9800; color:#000; padding:10px; text-align:center; font-weight:bold; margin-bottom:10px; border-radius:5px; font-size:0.9em;">
+            ⚠️ ATENCIÓN: Sin calibración activa. Las mediciones pueden ser inexactas.
+        </div>
+        <div class="global-display">
+            <div id="global-value" class="global-value color-green">--.-</div>
+            <span class="global-label">dBA Global</span>
+        </div>
+        <!-- Panel de Offset Global -->
+        <div
+            style="display: flex; align-items: center; justify-content: center; gap: 5px; margin-bottom: 15px; background: #1a1a1a; padding: 8px; border-radius: 5px; border: 1px solid #333;">
+            <span style="font-size: 0.85em; color: #888;">Offset Global:</span>
+            <button id="offset-minus" style="background:#444; width:auto; padding:5px 10px; margin:0;">- 0.1</button>
+            <input type="number" id="global-offset-input" value="0.0" step="0.1"
+                style="width: 65px; text-align: center; padding: 5px; font-size:1em; background:#000; color:#4CAF50; border:1px solid #555; font-weight:bold;">
+            <button id="offset-plus" style="background:#444; width:auto; padding:5px 10px; margin:0;">+ 0.1</button>
+            <span style="font-size: 0.85em; color: #888;">dBA</span>
+        </div>
+        <button id="weighting-btn" style="background-color: #333; width: 100%; margin-bottom: 15px;">Ponderación
+            Temporal: FAST</button>
+        <div class="visualizer-container">
+            <canvas id="visualizer" width="800" height="250"></canvas>
+        </div>
+
+        <div class="panel">
+            <button id="start-mic" class="success">ENCENDER MICRÓFONO</button>
+            <button id="flip-screen-btn" style="background-color: #333;">📱 GIRAR PANTALLA (Modo Captura)</button>
+
+            <div class="controls-group" style="margin-top:15px;">
+                <button id="start-csv" disabled>⏺ Iniciar Grabación CSV</button>
+                <button id="stop-csv" class="danger" disabled>⏹ Detener y Descargar</button>
+            </div>
+        </div>
+
+        <div class="panel" id="calibration-panel" style="display:none;">
+            <h2>Calibración por Diferencia</h2>
+            <div id="calibration-status">Seleccione frecuencia y mida el ruido de fondo.</div>
+
+            <div class="freq-selector">
+                <button id="prev-freq">
+                    << Ant.</button>
+                        <span id="current-frequency">- Hz</span>
+                        <button id="next-freq">Sig. >></button>
+            </div>
+
+            <div class="step-box">
+                <label><strong>PASO 1:</strong> Nivel Ruido de Fondo (Sonómetro SIN tono)</label>
+                <div class="controls-group">
+                    <input type="number" id="bg-input" placeholder="Ej: 45.2" step="0.1">
+                    <button id="save-bg-btn" style="width:auto;">Guardar Fondo</button>
+                </div>
+            </div>
+
+            <div class="step-box">
+                <label><strong>PASO 2:</strong> Nivel Total (Sonómetro CON tono)</label>
+                <div class="controls-group">
+                    <input type="number" id="total-input" placeholder="Ej: 62.1" step="0.1">
+                    <button id="save-calibration" class="warning" style="width:auto;" disabled>Calibrar</button>
+                    <button id="skip-freq-btn" class="danger" style="width:auto;">⏭ Saltar Banda</button>
+                    <!-- ESTE ES EL NUEVO -->
+                </div>
+
+                <!-- NUEVA SECCIÓN: AJUSTE FINO -->
+                <div class="step-box" style="margin-top:20px; border-color: #2196f3;">
+                    <label><strong>AJUSTE FINO MANUAL</strong> (Modifica la banda seleccionada)</label>
+                    <div class="controls-group">
+                        <button id="adj-minus" style="background-color: #d32f2f; width: auto; flex:1;">- 1.0 dB</button>
+                        <span id="current-offset"
+                            style="flex:1; text-align:center; font-size:1.2em; font-family:monospace;">0.0 dB</span>
+                        <button id="adj-plus" style="background-color: #388e3c; width: auto; flex:1;">+ 1.0 dB</button>
+                    </div>
+                </div>
+
+            </div>
+
+            <div style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #333;">
+                <h3>Perfiles de Calibración</h3>
+                <div class="controls-group">
+                    <button id="export-btn" style="background-color: #00695c;">Descargar Perfil</button>
+                    <input type="file" id="import-input" accept=".json" class="file-input-hidden">
+                    <button id="import-btn" style="background-color: #4a148c;">Cargar Perfil</button>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <script src="audio-processor.js"></script>
+    <script src="calibration-ui.js"></script>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            let csvInterval = null;
+            let csvData = [];
+            let hasUnsavedChanges = false; // Controlador para avisar al cerrar
+
+            // --- FUNCIÓN AUXILIAR PARA EL BANNER (Definida aquí arriba para que exista cuando se llame) ---
+            window.checkCalibrationStatus = function () {
+                const factors = window.calibrationFactorsDB;
+                const warningEl = document.getElementById('cal-warning');
+                const isCalibrated = factors && factors.some(f => f !== undefined && f !== null);
+                warningEl.style.display = isCalibrated ? 'none' : 'block';
+            };
+
+
+            // --- INICIALIZAMOS LA CALIBRACIÓN UNA SOLA VEZ (No se pierde al apagar el micro) ---
+            const calibManager = new CalibrationManager();
+            calibManager.init();
+            window.checkCalibrationStatus();
+
+            // --- 1. VISOR GLOBAL (Sin cambios, el de Fast/Slow correcto) ---
+            const globalValueEl = document.getElementById('global-value');
+            let smoothedDBA = -Infinity;
+            let isFast = true;
+            let lastFrameTime = Date.now();
+            let lastDisplayUpdate = 0;
+
+            function updateGlobalDisplay() {
+                const now = Date.now();
+                const timeDelta = Math.max((now - lastFrameTime) / 1000, 0.001);
+                lastFrameTime = now;
+
+                if (window.audioProcessor && window.audioProcessor.globalDBA !== undefined && isFinite(window.audioProcessor.globalDBA)) {
+                    const rawDBA = window.audioProcessor.globalDBA;
+                    const tau = isFast ? 0.125 : 1.0;
+                    const alpha = 1 - Math.exp(-timeDelta / tau);
+
+                    if (smoothedDBA === -Infinity) {
+                        smoothedDBA = rawDBA;
+                    } else {
+                        const linearSmoothed = Math.pow(10, smoothedDBA / 10);
+                        const linearRaw = Math.pow(10, rawDBA / 10);
+                        const mixedLinear = linearSmoothed + (alpha * (linearRaw - linearSmoothed));
+                        if (mixedLinear > 0) smoothedDBA = 10 * Math.log10(mixedLinear);
+                    }
+
+                    const displayInterval = isFast ? 100 : 1000;
+                    if (now - lastDisplayUpdate > displayInterval) {
+                        const displayDBA = smoothedDBA + window.globalOffsetDB;
+                        globalValueEl.innerText = displayDBA.toFixed(1);
+                        globalValueEl.className = "global-value " + (displayDBA < 65 ? "color-green" : displayDBA < 85 ? "color-yellow" : "color-red");
+                        lastDisplayUpdate = now;
+                    }
+                }
+                requestAnimationFrame(updateGlobalDisplay);
+            }
+            requestAnimationFrame(updateGlobalDisplay);
+
+            document.getElementById('weighting-btn').addEventListener('click', function () {
+                isFast = !isFast;
+                this.textContent = isFast ? "Ponderación Temporal: FAST" : "Ponderación Temporal: SLOW";
+                this.style.backgroundColor = isFast ? "#333" : "#0d47a1";
+                smoothedDBA = -Infinity;
+            });
+
+            // --- 2. EVENTO MICRÓFONO (Ya NO reinicia la calibración) ---
+            let isMicActive = false;
+
+            document.getElementById('start-mic').addEventListener('click', function () {
+                if (!isMicActive) {
+                    isMicActive = true;
+                    this.textContent = "⛔ APAGAR MICRÓFONO";
+                    this.className = "danger";
+                    window.startMicrophone();
+                    document.getElementById('calibration-panel').style.display = 'block';
+                    document.getElementById('start-csv').disabled = false;
+                    calibManager.selectFrequency(0);
+                } else {
+                    isMicActive = false;
+                    this.textContent = "ENCENDER MICRÓFONO";
+                    this.className = "success";
+                    this.disabled = false;
+                    if (window.audioContext) window.audioContext.suspend();
+                    document.getElementById('calibration-panel').style.display = 'none';
+                    document.getElementById('global-value').innerText = "--.-";
+                }
+            });
+
+            // --- 3. GIRAR PANTALLA ---
+            document.getElementById('flip-screen-btn').addEventListener('click', function () {
+                const container = document.getElementById('app-container');
+                container.classList.toggle('screen-flipped');
+                this.textContent = container.classList.contains('screen-flipped') ? '📱 RESTABLECER PANTALLA' : '📱 GIRAR PANTALLA (Modo Captura)';
+            });
+
+            // --- 4. GRABADORA CSV ---
+            document.getElementById('start-csv').addEventListener('click', () => {
+                csvData = [];
+                csvData.push(["Tiempo(ms)", "Global_dBA", ...calibManager.centerFrequencies.map(f => f + "Hz")]);
+                document.getElementById('start-csv').disabled = true;
+                document.getElementById('stop-csv').disabled = false;
+                let startTime = Date.now();
+                csvInterval = setInterval(() => {
+                    let row = [Date.now() - startTime, window.audioProcessor.globalDBA.toFixed(2)];
+                    window.audioProcessor.bandResultsDB.forEach(db => row.push(isFinite(db) ? db.toFixed(2) : "-100"));
+                    csvData.push(row);
+                }, 500);
+            });
+
+            document.getElementById('stop-csv').addEventListener('click', () => {
+                clearInterval(csvInterval);
+                document.getElementById('start-csv').disabled = false;
+                document.getElementById('stop-csv').disabled = true;
+                let csvContent = "data:text/csv;charset=utf-8," + csvData.map(e => e.join(",")).join("\n");
+                const link = document.createElement("a");
+                link.setAttribute("href", encodeURI(csvContent));
+                link.setAttribute("download", `medicion_${Date.now()}.csv`);
+                document.body.appendChild(link); link.click(); document.body.removeChild(link);
+            });
+
+            // --- 5. EVENTOS DE CALIBRACIÓN ---
+            document.getElementById('prev-freq').addEventListener('click', () => { if (calibManager.currentFrequencyIndex > 0) calibManager.selectFrequency(calibManager.currentFrequencyIndex - 1); });
+            document.getElementById('next-freq').addEventListener('click', () => { if (calibManager.currentFrequencyIndex < calibManager.centerFrequencies.length - 1) calibManager.selectFrequency(calibManager.currentFrequencyIndex + 1); });
+            document.getElementById('save-bg-btn').addEventListener('click', () => { calibManager.savePhysBackground(document.getElementById('bg-input').value); });
+
+            // Al calibrar o ajustar a mano, marcamos que hay cambios sin guardar
+            document.getElementById('save-calibration').addEventListener('click', () => {
+                calibManager.applyCalibration(document.getElementById('total-input').value);
+                hasUnsavedChanges = true;
+                window.checkCalibrationStatus();
+            });
+            document.getElementById('skip-freq-btn').addEventListener('click', () => {
+                calibManager.skipFrequency();
+                hasUnsavedChanges = true;
+                checkCalibrationStatus();
+            });
+            document.getElementById('adj-minus').addEventListener('click', () => {
+                calibManager.manualAdjust(-1.0);
+                hasUnsavedChanges = true;
+            });
+            document.getElementById('adj-plus').addEventListener('click', () => {
+                calibManager.manualAdjust(1.0);
+                hasUnsavedChanges = true;
+            });
+
+            // --- 6. OFFSET GLOBAL ---
+            window.globalOffsetDB = 0.0;
+            document.getElementById('offset-minus').addEventListener('click', () => {
+                window.globalOffsetDB = Math.max((window.globalOffsetDB - 0.1), -20);
+                document.getElementById('global-offset-input').value = window.globalOffsetDB.toFixed(1);
+                hasUnsavedChanges = true;
+            });
+            document.getElementById('offset-plus').addEventListener('click', () => {
+                window.globalOffsetDB = Math.min((window.globalOffsetDB + 0.1), 20);
+                document.getElementById('global-offset-input').value = window.globalOffsetDB.toFixed(1);
+                hasUnsavedChanges = true;
+            });
+            document.getElementById('global-offset-input').addEventListener('change', (e) => {
+                let val = parseFloat(e.target.value);
+                if (!isNaN(val)) window.globalOffsetDB = Math.max(-20, Math.min(20, val));
+                e.target.value = window.globalOffsetDB.toFixed(1);
+                hasUnsavedChanges = true;
+            });
+
+            // --- 7. GUARDADO AVANZADO (FILE SYSTEM ACCESS API) ---
+            document.getElementById('export-btn').addEventListener('click', async () => {
+                try {
+                    if (window.showSaveFilePicker) {
+                        // Navegadores modernos (Chrome, Edge): Ventana nativa "Guardar como"
+                        const handle = await window.showSaveFilePicker({
+                            suggestedName: `PerfilCalibracion_${new Date().toISOString().slice(0, 10)}.json`,
+                            types: [{ description: 'Archivos de Calibración', accept: { 'application/json': ['.json'] } }]
+                        });
+                        const writable = await handle.createWritable();
+                        await writable.write(calibManager.generateJSONString());
+                        await writable.close();
+                    } else {
+                        // Navegadores antiguos (Safari, Firefox): Descarga directa
+                        calibManager.exportCalibration();
+                    }
+                    hasUnsavedChanges = false; // Se guardó correctamente
+                    document.getElementById('calibration-status').textContent = "¡Perfil guardado correctamente!";
+                } catch (err) {
+                    if (err.name !== 'AbortError') console.error(err); // El usuario canceló, no es error
+                }
+            });
+
+            document.getElementById('import-btn').addEventListener('click', () => { document.getElementById('import-input').click(); });
+            document.getElementById('import-input').addEventListener('change', (event) => {
+                calibManager.importCalibration(event);
+                hasUnsavedChanges = false; // Al cargar uno, no hay cambios sin guardar
+                window.checkCalibrationStatus();
+            });
+
+            // --- 8. AVISO AL CERRAR PÁGINA CON CAMBIOS ---
+            window.addEventListener('beforeunload', (e) => {
+                if (hasUnsavedChanges) {
+                    e.preventDefault();
+                    e.returnValue = ''; // Necesario para Chrome
+                }
+            });
+
+         });  
+    </script>
+        <!-- REGISTRO DEL SERVICE WORKER PARA PWA -->
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('./sw.js')
+            .then(reg => console.log('✅ Sonómetro listo para instalarse'))
+            .catch(err => console.error('❌ Error de Service Worker:', err));
+        });
+      }
+    </script>
+</body>
+</html>
+</body>
+
+</html>
