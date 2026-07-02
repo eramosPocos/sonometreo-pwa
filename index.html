@@ -226,6 +226,25 @@
             <button id="offset-plus" style="background:#444; width:auto; padding:5px 10px; margin:0;">+ 0.1</button>
             <span style="font-size: 0.85em; color: #888;">dBA</span>
         </div>
+        <!-- Panel de Mediciones Integradas (Leq) -->
+        <div
+            style="display: flex; align-items: center; justify-content: space-between; background: #000; padding: 10px; border-radius: 5px; border: 1px solid #333; margin-bottom: 15px;">
+            <div style="text-align: center; flex: 1; border-right: 1px solid #333;">
+                <div style="font-size: 0.8em; color: #888;">LAeq (Promedio Energético)</div>
+                <div id="leq-value" class="global-value color-green" style="font-size: 2.5rem; margin: 5px 0;">--.-
+                </div>
+                <div id="leq-timer" style="font-size: 0.8em; color: #aaa;">00:00</div>
+            </div>
+            <div style="text-align: center; width: 80px;">
+                <div style="font-size: 0.8em; color: #888;">LMax</div>
+                <div id="lmax-value" style="font-size: 1.5rem; color: #ff0000; font-weight:bold;">--.-</div>
+            </div>
+            <div style="width: 100px; text-align: center;">
+                <button id="reset-leq-btn" class="danger"
+                    style="width: auto; padding: 15px 10px; font-size: 0.9em; line-height: 1.2;">NUEVA MEDICIÓN
+                    LEQ</button>
+            </div>
+        </div>
         <button id="weighting-btn" style="background-color: #333; width: 100%; margin-bottom: 15px;">Ponderación
             Temporal: FAST</button>
         <div class="visualizer-container">
@@ -348,6 +367,28 @@
                     if (now - lastDisplayUpdate > displayInterval) {
                         const displayDBA = smoothedDBA + window.globalOffsetDB;
                         globalValueEl.innerText = displayDBA.toFixed(1);
+                        // --- CÁLCULO DE LEQ Y LMAX ---
+                        // Sumamos la energía de este instante multiplicada por el tiempo transcurrido (Integración)
+                        const currentEnergy = Math.pow(10, displayDBA / 10);
+                        leqEnergySum += (currentEnergy * timeDelta);
+
+                        // Actualizamos el pico máximo
+                        if (displayDBA > maxDBARecorded) {
+                            maxDBARecorded = displayDBA;
+                            document.getElementById('lmax-value').innerText = maxDBARecorded.toFixed(1);
+                        }
+
+                        // Calcular y mostrar LAeq
+                        const elapsedTimeSec = (Date.now() - leqStartTime) / 1000;
+                        if (elapsedTimeSec > 0.1) { // Esperamos al menos 0.1s para evitar dividir por cero
+                            const leqDB = 10 * Math.log10(leqEnergySum / elapsedTimeSec);
+                            document.getElementById('leq-value').innerText = leqDB.toFixed(1);
+
+                            // Actualizar el cronómetro (mm:ss)
+                            const mins = Math.floor(elapsedTimeSec / 60).toString().padStart(2, '0');
+                            const secs = Math.floor(elapsedTimeSec % 60).toString().padStart(2, '0');
+                            document.getElementById('leq-timer').innerText = `${mins}:${secs}`;
+                        }
                         globalValueEl.className = "global-value " + (displayDBA < 65 ? "color-green" : displayDBA < 85 ? "color-yellow" : "color-red");
                         lastDisplayUpdate = now;
                     }
@@ -406,6 +447,16 @@
                     csvData.push(row);
                 }, 500);
             });
+            // --- EVENTO RESETEAR LEQ ---
+            document.getElementById('reset-leq-btn').addEventListener('click', () => {
+                leqEnergySum = 0; // Vaciamos la energía acumulada
+                leqStartTime = Date.now(); // Reiniciamos el cronómetro
+                maxDBARecorded = -Infinity; // Reiniciamos el pico máximo
+                document.getElementById('leq-value').innerText = "--.-";
+                document.getElementById('lmax-value').innerText = "--.-";
+                document.getElementById('leq-timer').innerText = "00:00";
+                document.getElementById('calibration-status').textContent = "Medición LAeq reiniciada.";
+            });
 
             document.getElementById('stop-csv').addEventListener('click', () => {
                 clearInterval(csvInterval);
@@ -450,6 +501,10 @@
                 document.getElementById('global-offset-input').value = window.globalOffsetDB.toFixed(1);
                 hasUnsavedChanges = true;
             });
+            // --- VARIABLES Y LÓGICA DEL LEQ ---
+            let leqEnergySum = 0;       // Acumulador de energía
+            let leqStartTime = Date.now(); // Cuando empezó la medición
+            let maxDBARecorded = -Infinity; // Para el pico máximo
             document.getElementById('offset-plus').addEventListener('click', () => {
                 window.globalOffsetDB = Math.min((window.globalOffsetDB + 0.1), 20);
                 document.getElementById('global-offset-input').value = window.globalOffsetDB.toFixed(1);
@@ -500,19 +555,20 @@
                 }
             });
 
-         });  
+        });  
     </script>
-        <!-- REGISTRO DEL SERVICE WORKER PARA PWA -->
+    <!-- REGISTRO DEL SERVICE WORKER PARA PWA -->
     <script>
-      if ('serviceWorker' in navigator) {
-        window.addEventListener('load', () => {
-          navigator.serviceWorker.register('./sw.js')
-            .then(reg => console.log('✅ Sonómetro listo para instalarse'))
-            .catch(err => console.error('❌ Error de Service Worker:', err));
-        });
-      }
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('./sw.js')
+                    .then(reg => console.log('✅ Sonómetro listo para instalarse'))
+                    .catch(err => console.error('❌ Error de Service Worker:', err));
+            });
+        }
     </script>
 </body>
+
 </html>
 </body>
 
