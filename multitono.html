@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Generador Multitono Avanzado</title>
+    <style>
+        body { font-family: Arial, sans-serif; background-color: #111; color: #fff; margin: 0; padding: 10px; }
+        h2 { text-align: center; font-size: 1.2em; color: #4CAF50; margin-top: 10px; }
+        .controls { display: flex; gap: 10px; margin-bottom: 15px; }
+        button { flex: 1; padding: 15px; font-size: 1.1em; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; }
+        .play { background-color: #2e7d32; color: white; }
+        .stop { background-color: #b71c1c; color: white; }
+        .master { margin-bottom: 15px; background: #222; padding: 10px; border-radius: 5px; }
+        .master label { display: block; margin-bottom: 5px; font-size: 0.9em; color: #aaa; }
+        input[type=range] { width: 100%; }
+        
+        .global-actions { display: flex; gap: 5px; margin-bottom: 15px; }
+        .global-actions button { padding: 8px; font-size: 0.85em; background: #333; color: #fff; }
+
+        .bands-container { display: grid; grid-template-columns: 1fr; gap: 4px; max-height: 65vh; overflow-y: auto; padding-right: 5px; }
+        
+        .band-row { 
+            display: flex; align-items: center; 
+            background: #222; padding: 5px 8px; border-radius: 3px; 
+            border-left: 4px solid #4CAF50; 
+            transition: opacity 0.2s;
+        }
+        .band-row.muted { 
+            opacity: 0.4; 
+            border-left-color: #555; 
+        }
+        
+        .band-toggle { 
+            width: 40px; height: 40px; 
+            border-radius: 5px; 
+            font-size: 0.8em; 
+            font-weight: bold; 
+            margin-right: 8px; 
+            display: flex; 
+            align-items: center; 
+            justify-content: center; 
+            flex: none; 
+        }
+        .btn-on { background-color: #2e7d32; }
+        .btn-off { background-color: #b71c1c; }
+        
+        .band-freq { width: 60px; font-size: 0.85em; font-weight: bold; color: #aaa; }
+        .band-db { width: 55px; text-align: center; font-family: monospace; font-size: 0.85em; color: #4CAF50; }
+        .band-controls { display: flex; gap: 4px; flex: 1; justify-content: flex-end; }
+        .band-controls button { width: 32px; padding: 5px; font-size: 0.8em; margin: 0; flex: none; background: #444; }
+    </style>
+</head>
+<body>
+
+    <h2>Generador Multitono</h2>
+    
+    <div class="controls">
+        <button id="play-btn" class="play">▶ REPRODUCIR</button>
+        <button id="stop-btn" class="stop" disabled>⏹ DETENER</button>
+    </div>
+
+    <div class="master">
+        <label>Volumen Maestro: <span id="vol-val">80%</span></label>
+        <input type="range" id="master-vol" min="0" max="100" value="80">
+    </div>
+
+    <div class="global-actions">
+        <button onclick="setAllBands(true)">ENCENDER TODAS</button>
+        <button onclick="setAllBands(false)">APAGAR TODAS</button>
+        <button onclick="loadPreset('pink')">CARGAR ROSA</button>
+    </div>
+
+    <div class="bands-container" id="bands-container">
+        <!-- Las bandas se generan con JavaScript -->
+    </div>
+
+    <script>
+        const centerFrequencies = [20, 25, 31.5, 40, 50, 63, 80, 100, 125, 160, 200, 250, 315, 400, 500, 630, 800, 1000, 1250, 1600, 2000, 2500, 3150, 4000, 5000, 6300, 8000, 10000, 12500, 16000, 20000];
+        
+        let audioCtx;
+        let oscillators = [];
+        let gainNodes = [];
+        let masterGain;
+        let isPlaying = false;
+        
+        // Estado de cada banda (Encendida/Apagada) y su ganancia en dB
+        let bandActiveState = new Array(centerFrequencies.length).fill(true);
+        let bandGainsDB = [];
+
+        // Función para calcular la curva de Ruido Rosa
+        function calculatePinkNoiseCurve() {
+            const refFreq = 1000;
+            centerFrequencies.forEach(f => {
+                const relativeDB = -10 * Math.log10(f / refFreq);
+                bandGainsDB.push(parseFloat(relativeDB.toFixed(1)));
+            });
+        }
+
+        // Generar la interfaz gráfica
+        function buildUI() {
+            calculatePinkNoiseCurve();
+            const container = document.getElementById('bands-container');
+            
+            centerFrequencies.forEach((freq, index) => {
+                const row = document.createElement('div');
+                row.id = `row-${index}`;
+                row.className = 'band-row'; // Por defecto encendida
+                row.innerHTML = `
+                    <button class="band-toggle btn-on" id="toggle-${index}" onclick="toggleBand(${index})">ON</button>
+                    <div class="band-freq">${freq >= 1000 ? (freq/1000)+'k' : freq} Hz</div>
+                    <div class="band-db" id="val-${index}">${bandGainsDB[index].toFixed(1)}</div>
+                    <div class="band-controls">
+                        <button onclick="adjustBand(${index}, -1)">-1</button>
+                        <button onclick="adjustBand(${index}, -0.1)">-.1</button>
+                        <button onclick="adjustBand(${index}, 0.1)">+.1</button>
+                        <button onclick="adjustBand(${index}, 1)">+1</button>
+                    </div>
+                `;
+                container.appendChild(row);
+            });
+        }
+
+        // Acciones de cada banda
+        function toggleBand(index) {
+            bandActiveState[index] = !bandActiveState[index];
+            
+            const btn = document.getElementById(`toggle-${index}`);
+            const row = document.getElementById(`row-${index}`);
+            
+            if (bandActiveState[index]) {
+                btn.innerText = "ON";
+                btn.className = "band-toggle btn-on";
+                row.classList.remove('muted');
+            } else {
+                btn.innerText = "OFF";
+                btn.className = "band-toggle btn-off";
+                row.classList.add('muted');
+            }
+            
+            if (isPlaying) updateGainNode(index);
+        }
+
+        function adjustBand(index, delta) {
+            bandGainsDB[index] += delta;
+            document.getElementById(`val-${index}`).innerText = bandGainsDB[index].toFixed(1);
+            if (isPlaying) updateGainNode(index);
+        }
+
+        function updateGainNode(index) {
+            // Si está apagada, la ganancia es 0 (silencio total). Si no, aplica los dB configurados.
+            const targetGain = bandActiveState[index] ? Math.pow(10, bandGainsDB[index] / 20) : 0;
+            gainNodes[index].gain.linearRampToValueAtTime(targetGain, audioCtx.currentTime + 0.05);
+        }
+
+        // Acciones Globales
+        function setAllBands(state) {
+            centerFrequencies.forEach((freq, index) => {
+                bandActiveState[index] = state;
+                const btn = document.getElementById(`toggle-${index}`);
+                const row = document.getElementById(`row-${index}`);
+                btn.innerText = state ? "ON" : "OFF";
+                btn.className = `band-toggle ${state ? 'btn-on' : 'btn-off'}`;
+                state ? row.classList.remove('muted') : row.classList.add('muted');
+                
+                if (isPlaying) updateGainNode(index);
+            });
+        }
+
+        function loadPreset(preset) {
+            if (preset === 'pink') {
+                const refFreq = 1000;
+                centerFrequencies.forEach((freq, index) => {
+                    bandGainsDB[index] = parseFloat((-10 * Math.log10(freq / refFreq)).toFixed(1));
+                    document.getElementById(`val-${index}`).innerText = bandGainsDB[index].toFixed(1);
+                    if (isPlaying) updateGainNode(index);
+                });
+            }
+        }
+
+        // Motor de Audio
+        function startAudio() {
+            if (isPlaying) return;
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            masterGain = audioCtx.createGain();
+            masterGain.gain.value = document.getElementById('master-vol').value / 100;
+            masterGain.connect(audioCtx.destination);
+
+            centerFrequencies.forEach((freq, index) => {
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                
+                osc.type = 'sine';
+                osc.frequency.value = freq;
+                // Iniciar con el estado actual (ON u OFF) y su ganancia
+                const initialGain = bandActiveState[index] ? Math.pow(10, bandGainsDB[index] / 20) : 0;
+                gain.gain.value = initialGain;
+                
+                osc.connect(gain);
+                gain.connect(masterGain);
+                osc.start();
+                
+                oscillators.push(osc);
+                gainNodes.push(gain);
+            });
+
+            isPlaying = true;
+            document.getElementById('play-btn').disabled = true;
+            document.getElementById('stop-btn').disabled = false;
+        }
+
+        function stopAudio() {
+            if (!isPlaying) return;
+            oscillators.forEach(osc => { try { osc.stop(); } catch(e){} });
+            oscillators = [];
+            gainNodes = [];
+            if(audioCtx) audioCtx.close();
+            isPlaying = false;
+            document.getElementById('play-btn').disabled = false;
+            document.getElementById('stop-btn').disabled = true;
+        }
+
+        // Event Listeners
+        document.getElementById('play-btn').addEventListener('click', startAudio);
+        document.getElementById('stop-btn').addEventListener('click', stopAudio);
+        document.getElementById('master-vol').addEventListener('input', (e) => {
+            document.getElementById('vol-val').innerText = e.target.value + '%';
+            if (isPlaying && masterGain) {
+                masterGain.gain.linearRampToValueAtTime(e.target.value / 100, audioCtx.currentTime + 0.05);
+            }
+        });
+
+        // Iniciar
+        buildUI();
+    </script>
+</body>
+</html>
